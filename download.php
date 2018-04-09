@@ -1,23 +1,115 @@
 <?php
-	$path = $_REQUEST['path'];
 
-	if( $path ) {
-		$name = basename($path);
+	$action = 'action_' . $_REQUEST['action'];
+	if( function_exists($action) ) {
+		$notification = (object)[];
+		$notification->type = '';
+		$notification->text = 'Do not set';
+		$action();
 
-		if( !file_exists($name) ) {
-			$file_size = file_put_contents($name, fopen($path, 'r'));
-			$is_downloaded = (bool) $file_size;
-			if( $is_downloaded ) {
-				$file_size = get_file_size($file_size);
-			}
+	} else {
+		$archives = get_archives();
+	}
 
+	function action_download() {
+		global $notification;
+
+		if( !$_REQUEST['path'] ) {
+			$notification->type = 'error';
+			$notification->text = 'Path is not set';
+			return;
+		}
+
+		$basename = basename($_REQUEST['path']);
+		if( file_exists($basename) ) {
+			$filesize = get_file_size( filesize($basename) );
+			$notification->type = 'warning';
+			$notification->text = 'File `<u>' . $basename . '</u>` ('. $filesize .') already exist.';
+			return;
+		}
+
+		$download = download_file($_REQUEST['path']);
+		if( $download->success ) {
+			$notification->type = 'success';
+			$notification->text = '`<u>'. $download->filename . '</u>` (' . $download->filesize . ') downloaded.';
 		} else {
-			$exist_file = get_file_size( filesize($name) );
+			var_dump($download);
+			$notification->type = 'warning';
+			$notification->text = '`<u>'. $download->filename . '</u>` can\'t be downloaded.';
 		}
 	}
 
-	function get_file_size($file_size) {
-		$base = log($file_size, 1024);
+	function action_extract() {
+		global $notification;
+
+		if( !$_REQUEST['extract'] || !file_exists($_REQUEST['extract']) ) {
+			$notification->type = 'error';
+			$notification->text = '`<u>'. $_REQUEST['extract'] .'</u>` doesn\'t exist';
+			return;
+		}
+
+		if( extract_archive($_REQUEST['extract']) ) {
+			$notification->type = 'success';
+			$notification->text = '<u>' . $_REQUEST['extract'] . '</u> successfully extracted';
+		} else {
+			$notification->type = 'warning';
+			$notification->text = 'Can\'t extract `<u>' . $_REQUEST['extract'] . '</u>`';
+		}
+	}
+
+	function get_archives() {
+		$archives = array();
+		foreach (glob('*.tar*') as $filename) {
+			$archives[] = $filename;
+		}
+		return $archives;
+	}
+
+	function download_file($path) {
+		if(!$path) return false;
+
+		$download = (object)[];
+		$download->success = false;
+		$download->path = $path;
+		$download->filename = basename($path);
+
+		$download->filesize = file_put_contents($download->filename, fopen($download->path, 'r'));
+		$download->success = (bool) $download->filesize;
+		if( $download->success ) {
+			$download->filesize = get_file_size( $download->filesize );
+		}
+		return $download;
+	}
+
+	function extract_archive($path) {
+		if( !$path ) return false;
+
+		try {
+			if(substr($path, -7) == '.tar.gz') {
+				$decompressed_file = new PharData($path);
+				$decompressed_file->decompress(); // creates filename.tar
+				$unlink_file = $path;
+				$path = substr($path, 0, -3);
+			}
+
+			// unarchive from the tar
+			$phar = new PharData($path);
+			$phar->extractTo('.');
+
+			// remove .tar
+			if( $unlink_file ) {
+				unlink($unlink_file);
+			}
+
+			return true;
+
+		} catch( Exception $e ) {
+			return false;
+		}
+	}
+
+	function get_file_size($size) {
+		$base = log($size, 1024);
 		$suffixes = array('', 'KB', 'MB', 'GB', 'TB');
 		return round(pow(1024, $base - floor($base)), 2) .' '. $suffixes[floor($base)];
 	}
@@ -35,7 +127,11 @@
 			height: 100%;
 		}
 		body {
+			-moz-flex-direction: column;
 			-ms-align-items: center;
+			-ms-flex-direction: column;
+			-o-flex-direction: column;
+			-webkit-flex-direction: column;
 			align-items: center;
 			background-color: #eee;
 			display: -moz-flex;
@@ -43,6 +139,7 @@
 			display: -o-flex;
 			display: -webkit-flex;
 			display: flex;
+			flex-direction: column;
 			height: 100%;
 			justify-content: center;
 			margin: 0;
@@ -52,30 +149,39 @@
 			background-color: #fff;
 			border-radius: 2px;
 			box-shadow: 0 1px 0 0 #d7d8db, 0 0 0 1px #e3e4e8;
-			margin: 20px auto;
+			margin: 10px auto;
 			max-width: 460px;
 			min-width: 300px;
 			padding: 15px;
 			text-align: center;
 			width: 90%;
 		}
-		h1 { margin: 0 0 20px }
-		.succ-text { color: #0a0 }
-		.warn-text { color: #ca0 }
-		.err-text { color: #a00 }
-		label {
-			display: block;
-			text-align: left;
-			margin-bottom: 5px;
-			font-size: .8rem;
+		.row {
+			-ms-align-items: center;
+			align-items: center;
+			border-bottom: 1px solid #eee;
+			display: -moz-flex;
+			display: -ms-flex;
+			display: -o-flex;
+			display: -webkit-flex;
+			display: flex;
+			justify-content: space-between;
+			margin: 3px 0;
+			padding: 3px 0;
 		}
+		.row:last-child {
+			border-bottom: none;
+		}
+		h1 { margin: 0 0 20px }
+		.success { color: #0a0 }
+		.warning { color: #ca0 }
+		.error { color: #a00 }
 		input {
 			border-radius: 2px;
 			border: none;
 			display: block;
 			font-size: 1.1em;
-			margin-bottom: 15px;
-			margin-top: 10px;
+			margin: 15px 0;
 			padding: 5px;
 			position: relative;
 			transition: all .2s ease-out;
@@ -97,12 +203,16 @@
 			color: #fff;
 			cursor: pointer;
 			display: block;
-			font-size: .9rem;
+			font-size: .8rem;
 			margin-left: auto;
 			max-width: 9rem;
-			padding: 5px 15px;
+			padding: 2px 5px;
 			text-decoration: none;
 			text-transform: uppercase;
+		}
+		.btn-big {
+			font-size: .9rem;
+			padding: 5px 15px;
 		}
 		.btn:hover,
 		.btn:active,
@@ -115,28 +225,36 @@
 <body>
 	<div class="container">
 		<h1>Download file to server</h1>
-	<?php if($path): ?>
+		<?php if($notification): ?>
 
-		<?php if($is_downloaded): ?>
-			<p class="succ-text"><u><?=$name; ?></u> (<?=$file_size; ?>) downloaded</p>
-			<a href="download.php" class="btn">Back</a>
-		<?php elseif($exist_file): ?>
-			<p class="warn-text">File <u><?=$name; ?></u> (<?=$exist_file; ?>) already exist</p>
-			<a href="download.php" class="btn">Back</a>
+			<p class="<?=$notification->type ?>"><?=$notification->text ?></p>
+			<a href="download.php" class="btn btn-big">Back</a>
+
 		<?php else: ?>
-			<p class="err-text"><u><?=$name; ?></u> can't be downloaded</p>
-			<p>Please, check the link: <a href="<?=$path; ?>" target="blank"><?=$path; ?></a></p>
-			<a href="download.php" class="btn">Back</a>
+
+			<form>
+				<input type="hidden" name="action" value="download">
+				<input type="text" name="path" placeholder="https://wordpress.org/latest.tar.gz" pattern="https?://.+?\..+" required="required">
+				<button class="btn btn-big">Download</button>
+			</form>
+
 		<?php endif; ?>
-
-	<?php else: ?>
-
-		<form>
-			<input type="text" name="path" placeholder="https://wordpress.org/latest.tar.gz" pattern="https?://.+?\..+" required="required">
-			<button class="btn">Download</button>
-		</form>
-
-	<?php endif; ?>
 	</div>
+
+	<?php if( $archives ): ?>
+	<div class="container">
+	<?php foreach($archives as $archive): ?>
+		<div class="row">
+			<span><?=$archive; ?></span>
+			<form method="post">
+				<input type="hidden" name="action" value="extract">
+				<input type="hidden" name="extract" value="<?=$archive; ?>">
+				<button class="btn">extract</button>
+			</form>
+		</div>
+	<?php endforeach; ?>
+	</div>
+	<?php endif; ?>
+
 </body>
 </html>
